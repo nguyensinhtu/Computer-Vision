@@ -44,9 +44,49 @@ int RGB2GrayScale(const cv::Mat& sourceImage, cv::Mat& destinationImage) {
 	return 1;
 }
 
+// khử nhiễu trên ảnh xám
+// input : ảnh xám
+
+Mat ConerDetector::GaussianFilter(Mat & srcImage, double sigma, int type)
+{
+	int nrows = srcImage.rows;
+	int ncols = srcImage.cols;
+
+	int kernel[5][5] = { { 0 } };
+
+	double w = FilterWindow(kernel, sigma);
+
+	for (int i = 0; i < 5; ++i) {
+		for (int j = 0; j < 5; ++j)
+			std::cout << kernel[i][j] << " ";
+		std::cout << endl;
+	}
+
+	Mat dstImg(nrows, ncols, srcImage.type());
+
+	uchar *data1 = NULL; float *data2 = NULL;
+	if (type == 1)
+		data1 = (uchar*)srcImage.data;
+	else if (type == 2)
+		data2 = (float*)srcImage.data;
+
+	for (int y = 0; y < nrows; ++y) {
+		float *pRow = dstImg.ptr<float>(y);
+		for (int x = 0; x < ncols; x++) {
+			if (type == 1)
+				pRow[x] = (float)(w * mul1(y, x, kernel, data1, ncols, nrows, ncols, 1, 0));
+			else if (type == 2)
+				pRow[x] = (float)(w * mul(y, x, kernel, data2, ncols, nrows, ncols, 1, 0));
+		}
+	}
+
+	return dstImg;
+}
+
 // nhân window với kernel
-double mul(int y, int x, int kernel[][5], float *pdata, int width, int height, int widthstep, int nchanel, int ii) {
-	int res = 0.0;
+float ConerDetector::mul(int y, int x, int kernel[][5], float *pdata, int width, int height, int widthstep, int nchanel, int ii) {
+	float res = 0.0;
+	//float * data = (float*)pdata;
 	for (int i = -2; i <= 2; ++i) {
 		for (int j = -2; j <= 2; ++j) {
 			if (y + i >= height || y + i < 0 || x + j >= width || x + j < 0) {
@@ -61,8 +101,25 @@ double mul(int y, int x, int kernel[][5], float *pdata, int width, int height, i
 	return res;
 }
 
-double mul(int y, int x, int kernel[][5], uchar *pdata, int width, int height) {
-	int res = 0.0;
+float ConerDetector::mul1(int y, int x, int kernel[][5], uchar *pdata, int width, int height, int widthstep, int nchanel, int ii) {
+	float res = 0.0;
+	
+	for (int i = -2; i <= 2; ++i) {
+		for (int j = -2; j <= 2; ++j) {
+			if (y + i >= height || y + i < 0 || x + j >= width || x + j < 0) {
+				continue;
+			}
+			else {
+				//cout << (double)pdata[(y + i)*widthstep + (x + j)*nchanel + ii] << endl;
+				res += pdata[(y + i)*widthstep + (x + j)*nchanel + ii] * kernel[2 - i][2 - j];
+			}
+		}
+	}
+	return res;
+}
+
+float ConerDetector::mul(int y, int x, int kernel[][5], uchar *pdata, int width, int height) {
+	float res = 0.0;
 	for (int i = -2; i <= 2; ++i) {
 		for (int j = -2; j <= 2; ++j) {
 			if (y + i >= height || y + i < 0 || x + j >= width || x + j < 0) {
@@ -80,78 +137,52 @@ double mul(int y, int x, int kernel[][5], uchar *pdata, int width, int height) {
 double ConerDetector::FilterWindow(int kernel[][5], double sigma)
 {
 	double r, s = 2.0 * sigma * sigma;
-
+	double mmin = 10000.0;
+	double tmp[5][5] = { {0.0} };
 	for (int x = -2; x <= 2; ++x) {
 		for (int y = -2; y <= 2; ++y) {
-			r = sqrt(x*x + y*y);
-			kernel[x + 2][y + 2] = 
-				(int)round(((exp(-(r*r) / s)) / (M_PI * s)) / (1.0/273));
+			r = (x*x + y*y)*1.0;
+			tmp[x + 2][y + 2] = 
+				(exp(-(r / s)) / (M_PI * s));
+			mmin = min(tmp[x + 2][y + 2], mmin);
 		}
 	}
-	
-	return (1.0 / 273);
+	cout << "mmin : " << mmin << endl;
+	for (int x = -2; x <= 2; ++x)
+		for (int y = -2; y <= 2; ++y) {
+			kernel[x + 2][y + 2] = round(tmp[x + 2][y + 2] / mmin);
+		}
+
+	return (mmin);
 }
 
 // tạo windows filter for laplace
 double ConerDetector::FilterWindow_LoG(int kernel[][5], double sigma)
 {
-	double tmp[5][5];
-	double r, s = 2 * sigma*sigma, ss = M_PI*sigma*sigma*sigma*sigma;
+	double tmp[5][5] = { {0.0} };
+	double r = 0.0, s = 2.0 * sigma*sigma, ss = 3.14159265359*sigma*sigma*sigma*sigma;
 
-	double mmin = 1000;
+	double mmin = 1e9 + 10.0;
 	for (int x = -2; x <= 2; ++x) {
 		for (int y = -2; y <= 2; ++y) {
-			tmp[x + 2][y + 2] = (1.0 / ss)*(1 - ((x*x + y*y) / s))*exp(-(x*x + y*y) / s);
-			mmin = min(mmin, tmp[x + 2][y + 2]);
+			r = (double)(x*x + y*y);
+			double k = (double)(r / s);
+			if (fabs(r - s) < 0.0000000001*fabs(r)) {
+				k = 0;
+			}
+			else
+				k = k - 1.0;
+
+			tmp[x + 2][y + 2] = (1.0 / ss)*k*exp(-r / s);
+			if (tmp[x + 2][y + 2] != 0.0)
+				mmin = min(mmin, abs(tmp[x + 2][y + 2]));
 		}
 	}
 
 	for (int i = 0; i < 5; ++i)
 		for (int j = 0; j < 5; ++j) {
-			kernel[i][j] = (int)round(tmp[i][j]/mmin);
+			kernel[i][j] = (int)round(tmp[i][j]/(mmin));
 		}
-
-	return 1;
-}
-
-
-// khử nhiễu trên 
-Mat ConerDetector::GaussianFilter(Mat & srcImage, double alpha)
-{
-	int nrows = srcImage.rows;
-	int ncols = srcImage.cols;
-
-	int kernel[5][5] = { {0} };
-
-	double w = FilterWindow(kernel, 1.0);
-
-	for (int i = 0; i < 5; ++i) {
-		for (int j = 0; j < 5; ++j)
-			std::cout << kernel[i][j] << " ";
-		std::cout << endl;
-	}
-
-	Mat dstImg(nrows, ncols, CV_32FC1);
-
-	float *data = (float*)srcImage.data;
-	for (int y = 0; y < nrows; ++y) {
-		float *pRow = srcImage.ptr<float>(y);
-		for (int x = 0; x < ncols; x++) {
-			pRow[x] = (double)(w * mul(y, x, kernel, data, ncols, nrows, ncols, 1, 0));
-		}
-	}
-
-	return dstImg;
-}
-
-cv::Mat ConerDetector::LoG(cv::Mat & srcImage, double sigma)
-{
-	int nrows = srcImage.rows;
-	int ncols = srcImage.cols;
-
-	int kernel[5][5] = { { 0 } };
-
-	double w = FilterWindow_LoG(kernel, sigma);
 
 	for (int i = 0; i < 5; ++i) {
 		for (int j = 0; j < 5; ++j) {
@@ -160,16 +191,42 @@ cv::Mat ConerDetector::LoG(cv::Mat & srcImage, double sigma)
 		std::cout << endl;
 	}
 
+	cout << "mmin " << mmin << " sigma : " << sigma << endl;
+
+	return mmin;
+}
+
+
+
+
+cv::Mat ConerDetector::LoG(cv::Mat & srcImage, vector<Mat> &ScaleSpace)
+{
+	int nrows = srcImage.rows;
+	int ncols = srcImage.cols;
+	double sigma = 1.0;
+	int n = 3;
+
+	int kernel[5][5] = { { 0 } };
+
+	double w;
+
 	Mat dstImg(nrows, ncols, CV_8UC1);
 
 	uchar *data = (uchar*)srcImage.data;
 
-	for (int y = 0; y < nrows; ++y) {
-		uchar *pRow = dstImg.ptr<uchar>(y);
+	for (int i = 0; i < n; ++i) {
+		w = FilterWindow_LoG(kernel, sigma);
+		for (int y = 0; y < nrows; ++y) {
+			uchar *pRow = dstImg.ptr<uchar>(y);
 			for (int x = 0; x < ncols; x++) {
-				pRow[x] = (uchar)(w * mul(y, x, kernel, data, ncols, nrows));
+				pRow[x] = (uchar)round((pow(sigma, 2) * w * mul1(y, x, kernel, data, ncols, nrows, ncols, 1, 0)));
+			}
 		}
+
+		sigma *= sqrt(2);
+		ScaleSpace.push_back(dstImg);
 	}
+
 	return dstImg;
 }
 
@@ -219,16 +276,10 @@ Mat ConerDetector::detectHarris(Mat & srcImg)
 	}
 	
 	// áp bộ lọc gaussian lên các ma trận Ixx, Iyy, Ixy;
-	Mat IIxx = GaussianFilter(Ixx, 1);
-	Mat IIyy = GaussianFilter(Iyy, 1);
-	Mat IIxy = GaussianFilter(Ixy, 1);
+	Mat IIxx = GaussianFilter(Ixx, 1.0, 2);
+	Mat IIyy = GaussianFilter(Iyy, 1.0, 2);
+	Mat IIxy = GaussianFilter(Ixy, 1.0, 2);
 
-	//Ixx.release(); Iyy.release(); Ixy.release();
-
-	/*cout << dst.size() << endl;
-	cout << Ixx.size() << endl;
-	cout << Iyy.size() << endl;
-	cout << Ixy.size() << endl;*/
 
 
 	vector<Point> points;
@@ -236,12 +287,12 @@ Mat ConerDetector::detectHarris(Mat & srcImg)
 	Mat rr(height, width, CV_32FC1);
 
 	for (int y = 0; y < height; ++y) {
-		float *prow1 = Ixx.ptr<float>(y);
-		float *prow2 = Iyy.ptr<float>(y);
-		float *prow3 = Ixy.ptr<float>(y);
+		float *prow1 = IIxx.ptr<float>(y);
+		float *prow2 = IIyy.ptr<float>(y);
+		float *prow3 = IIxy.ptr<float>(y);
 		float *prow4 = rr.ptr<float>(y);
 		for (int x = 0; x < width; ++x) {
-			prow4[x] = (prow1[x] * prow2[x] - prow3[x] * prow3[x]) - 0.06*(prow1[x] + prow2[x]);
+			prow4[x] = (prow1[x] * prow2[x] - prow3[x] * prow3[x]) - 0.04*(prow1[x] + prow2[x]);
 		}
 	}
 
@@ -253,7 +304,7 @@ Mat ConerDetector::detectHarris(Mat & srcImg)
 		for (int x = 0; x < width; ++x) {
 			float R = prow[x];
 
-			if (R > 10000000) {
+			if (R > 0) {
 				bool flag = true;
 				for (int i = -1; i <= 1; ++i) {
 					for (int j = -1; j <= 1; ++j) {
@@ -283,29 +334,18 @@ Mat ConerDetector::detectHarris(Mat & srcImg)
 	uchar *data = srcImg.data;
 	std::cout << "points : " << points.size();
 	for (int i = 0; i < points.size(); ++i) {
-		/*for (int l = -2; l <= 2; ++l)
-			for (int k = -2; k <= 2; ++k) {
-				if (points[i].y + l >= height || points[i].y + l < 0 || points[i].x + k >-width || points[i].x + k < 0)
-					continue;
-				
-				data[(points[i].y + l)*widthstep + (points[i].x + k)*nchanel] = 0;
-				data[(points[i].y + l)*widthstep + (points[i].x + k)*nchanel + 1] = 0;
-				data[(points[i].y + l)*widthstep + (points[i].x + k)*nchanel + 2] = 255;
-			}*/
-
-		data[(points[i].y)*widthstep + (points[i].x)*nchanel] = 0;
-		data[(points[i].y )*widthstep + (points[i].x)*nchanel + 1] = 0;
-		data[(points[i].y)*widthstep + (points[i].x)*nchanel + 2] = 255;
+		
+		// đánh dấu những điểm góc cạnh
+		drawMarker(srcImg, points[i], Scalar(0, 0, 255));
 	}
 
-	namedWindow("Filter", WINDOW_AUTOSIZE);
-	cv::imshow("Filter", srcImg);
-	//imshow("Filter", newdst);
+	namedWindow("Coner detection", WINDOW_AUTOSIZE);
+	cv::imshow("Coner detection", srcImg);
 	cv::waitKey(0);
 	return srcImg;
 }
 
-cv::Mat ConerDetector::Blob(cv::Mat & srcImg)
+cv::Mat ConerDetector::Blob(cv::Mat & srcImg, int type)
 {
 	Mat dst;
 	if (!isGrayScale(srcImg))
@@ -317,38 +357,46 @@ cv::Mat ConerDetector::Blob(cv::Mat & srcImg)
 	int width = dst.cols;
 	int height = dst.rows;
 
-	Mat dst1 = LoG(dst, 1);
-	Mat dst2 = LoG(dst, sqrt(2));
-	Mat dst3 = LoG(dst, 2.0*sqrt(2));
+	vector<Mat> ScaleSpace;
+	if (type == 1)
+		LoG(dst, ScaleSpace);
+	else if (type == 2)
+		DoG(dst, ScaleSpace);
 
 	vector<Point> points;
-	uchar *data1 = (uchar*)dst1.data;
-	uchar *data2 = (uchar*)dst2.data;
-	uchar *data3 = (uchar*)dst3.data;
-
-	int stepwidth = dst1.step[0];
-	
+	cout << "scale space : " << ScaleSpace.size() << endl;
+	int sz = ScaleSpace.size();
 	for (int y = 0; y < height; ++y) {
-		
-		uchar *prow1 = dst2.ptr<uchar>(y);
 		for (int x = 0; x < width; ++x) {
 			bool flag = true;
-			int r = prow1[x];
-			for (int i = -1; i <= 1; ++i) {
-				for (int j = -1; j <= 1; ++j) {
-					if (y + i >= height || y + i < 0 || x + j >= width || x + j < 0)
-						continue;
-					int a = data1[(y + i)*stepwidth + (x + j)];
-					int b = data2[(y + i)*stepwidth + (x + j)];
-					int c = data3[(y + i)*stepwidth + (x + j)];
+			for (int ii = 1; ii < sz - 1; ++ii) {
+				uchar *data1 = (uchar*)ScaleSpace[ii - 1].data;
+				uchar *data2 = (uchar*)ScaleSpace[ii].data;
+				uchar *data3 = (uchar*)ScaleSpace[ii + 1].data;
+				uchar *prow1 = ScaleSpace[ii].ptr<uchar>(y);
+				int stepwidth = ScaleSpace[ii].step[0];
+				int r = prow1[x];
+				for (int i = -2; i <= 2; ++i) {
+					for (int j = -2; j <= 2; ++j) {
+						if (y + i >= height || y + i < 0 || x + j >= width || x + j < 0)
+							continue;
+						int a = data1[(y + i)*stepwidth + (x + j)];
+						int b = data2[(y + i)*stepwidth + (x + j)];
+						int c = data3[(y + i)*stepwidth + (x + j)];
 
-					if (r < a || r < b || r < c) {
-						flag = false;
-						break;
+						//cout << r << " " << a << " " << b << " " << c << endl;
+						if (r < a || r < b || r < c) {
+							//cout << r << " " << a << " " << b << " " << c << endl;
+							flag = false;
+							break;
+						}
 					}
-				}
 
-				if (!flag)
+					if (!flag)
+						break;
+				}
+				
+				if (flag)
 					break;
 			}
 			if (flag)
@@ -363,13 +411,14 @@ cv::Mat ConerDetector::Blob(cv::Mat & srcImg)
 		std::cout << "points : " << points.size();
 		for (int i = 0; i < points.size(); ++i) {
 
-			data[(points[i].y)*widthstep + (points[i].x)*nchanel] = 0;
+			/*data[(points[i].y)*widthstep + (points[i].x)*nchanel] = 0;
 			data[(points[i].y)*widthstep + (points[i].x)*nchanel + 1] = 0;
-			data[(points[i].y)*widthstep + (points[i].x)*nchanel + 2] = 255;
+			data[(points[i].y)*widthstep + (points[i].x)*nchanel + 2] = 255;*/
+			circle(srcImg, points[i], 10, Scalar(0, 0, 255));
 		}
 
 		namedWindow("Filter", WINDOW_AUTOSIZE);
-		cv::imshow("Filter", dst1);
+		cv::imshow("Filter", srcImg);
 		//imshow("Filter", newdst);
 		cv::waitKey(0);
 	return srcImg;
@@ -387,24 +436,39 @@ bool checkpoint(uchar *data, int x, int y, int height, int width, int widthstep)
 	}
 }
 
-Mat ConerDetector::DoG(Mat & srcImg)
+
+void ConerDetector::DoG(Mat & srcImg, vector<Mat> &ScaleSpace)
 {
-	Mat dst;
-	RGB2GrayScale(srcImg, dst);
-	double alpha = 1.0;
-	vector<Mat> Scales;
-	Mat dst1, dst2;
-	double sqrt2 = sqrt(2);
-	dst1 = GaussianFilter(dst, alpha);
-	for (int i = 0; i < 6; ++i) {
-		dst2 = GaussianFilter(dst, alpha*sqrt2);
-		dst1 = dst2;
-		alpha *= sqrt2;
-		Scales.push_back(dst2 - dst1);
+	int nrows = srcImg.rows;
+	int ncols = srcImg.cols;
+	double sigma = 1.0;
+	int n = 7;
+
+	Mat *Img1 = new Mat(nrows, ncols, srcImg.type());
+	Mat *Img2 = new Mat(nrows, ncols, srcImg.type());
+	Mat dst(nrows, ncols, CV_8UC1);
+	*Img1 = GaussianFilter(srcImg, sigma, 1); sigma *= sqrt(2);
+
+	uchar *data = (uchar*)srcImg.data;
+
+	for (int i = 0; i < n; ++i) {
+		*Img2 = GaussianFilter(srcImg, sigma, 1);
+
+		for (int y = 0; y < nrows; ++y) {
+			uchar *prow1 = Img1->ptr<uchar>(y);
+			uchar *prow2 = Img2->ptr<uchar>(y);
+			uchar *pdst = dst.ptr<uchar>(y);
+
+			for (int x = 0; x < ncols; ++x) {
+				pdst[x] = (uchar)(prow2[x] - prow1[x]);
+			}
+		}
+		sigma *= sqrt(2);
+		Img1->release();
+		Img1 = Img2;
+		ScaleSpace.push_back(dst);
 	}
 
-	//
-	return srcImg;
 }
 
 double ConerDetector::Derivative(uchar * pdata, int kernel[3][3], int width, int height, int y, int x, int widthstep, int nchanel, int ii)
@@ -420,7 +484,7 @@ double ConerDetector::Derivative(uchar * pdata, int kernel[3][3], int width, int
 		}
 	}
 
-	return (double)res*(1.0/4);
+	return (double)(res*(1.0/4)*(1.0/255));
 }
 
 ConerDetector::ConerDetector()

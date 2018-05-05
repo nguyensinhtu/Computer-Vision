@@ -2,7 +2,7 @@
 #include "ConerDetector.h"
 
 Mat src, src_gray;
-int thresh = 200;
+int thresh = 100;
 int max_thresh = 255;
 
 char* source_window = "Source image";
@@ -21,27 +21,12 @@ void cornerHarris_demo(int, void*);
 	int chan = xx.step[1];
 
 	float* data = (float*)xx.data;
-	cout << col << " " << row << " " << width << endl;
-	for (int y = 0; y < row; ++y, data += col) {
-		float *pRow = data;
-		for (int x = 0; x < col; ++x, pRow += 1) {
-			cout << (float)pRow[0] << " ";
-			//pRow[0] = 1.123124;
-		}
-		cout << endl;
-	}
 
-	cout << col << " " << row << " " << width << endl;
 
 	data = (float*)xx.data;
-	/*for (int i = 0; i < row; i++) {
-		for (int j = 0; j < col; j++) {
-			cout << data[i*width + j * chan] << " ";
-		}
-		cout << endl;
-	}*/
+	
 
-	/*/// Load source image and convert it to gray
+	/// Load source image and convert it to gray
 	src = imread(argv[1], 1);
 	cvtColor(src, src_gray, CV_BGR2GRAY);
 
@@ -54,7 +39,7 @@ void cornerHarris_demo(int, void*);
 
 	waitKey(0);
 	return(0);
-}*/
+}
 
 /** @function cornerHarris_demo */
 void cornerHarris_demo(int, void*)
